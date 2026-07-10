@@ -1,0 +1,187 @@
+workflows:
+  default-workflow:
+    name: M.Player Default Workflow
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    environment:
+      flutter: stable
+      xcode: latest
+      java: 11
+      
+      vars:
+        PACKAGE_NAME: "com.example.m_player"
+        BUNDLE_ID: "com.example.m_player"
+
+    triggering:
+      events:
+        - push
+      branch:
+        - main
+        - develop
+      cancel_previous_builds: true
+
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "flutter.sdk=$HOME/flutter" > android/local.properties
+          echo "flutter.buildMode=release" >> android/local.properties
+
+      - name: Get Flutter dependencies
+        script: flutter pub get
+
+      - name: Run Flutter analyzer
+        script: flutter analyze
+
+      - name: Run tests
+        script: flutter test
+
+      - name: Build Android APK
+        script: flutter build apk --release
+
+      - name: Build Android App Bundle
+        script: flutter build appbundle --release
+
+      - name: Build iOS
+        script: flutter build ios --release --no-codesign
+
+    artifacts:
+      - build/app/outputs/**/*.apk
+      - build/app/outputs/**/*.aab
+      - build/ios/ipa/**/*.ipa
+      - flutter_drive.log
+
+    publishing:
+      email:
+        recipients:
+          - aubreymilinda61@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  android-workflow:
+    name: Android Build & Deploy
+    instance_type: linux_x2
+    max_build_duration: 45
+
+    environment:
+      flutter: stable
+      java: 11
+
+    triggering:
+      events:
+        - push
+      branch:
+        - main
+      tag:
+        pattern: 'v\d+\.\d+\.\d+'
+
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "flutter.sdk=$HOME/flutter" > android/local.properties
+
+      - name: Get dependencies
+        script: flutter pub get
+
+      - name: Build release APK
+        script: flutter build apk --release
+
+      - name: Build App Bundle
+        script: flutter build appbundle --release
+
+    artifacts:
+      - build/app/outputs/**/*.apk
+      - build/app/outputs/**/*.aab
+
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true
+
+  ios-workflow:
+    name: iOS Build & Deploy
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    environment:
+      flutter: stable
+      xcode: latest
+
+    triggering:
+      events:
+        - push
+      branch:
+        - main
+      tag:
+        pattern: 'v\d+\.\d+\.\d+'
+
+    scripts:
+      - name: Get dependencies
+        script: flutter pub get
+
+      - name: Build iOS
+        script: |
+          flutter build ios --release --no-codesign
+          cd ios
+          xcodebuild -workspace Runner.xcworkspace -scheme Runner -config Release -derivedDataPath build
+
+      - name: Create IPA
+        script: |
+          cd ios
+          xcodebuild -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -derivedDataPath build \
+            -archivePath build/Runner.xcarchive \
+            archive
+          xcodebuild -exportArchive \
+            -archivePath build/Runner.xcarchive \
+            -exportPath build/ipa \
+            -exportOptionsPlist ExportOptions.plist
+
+    artifacts:
+      - ios/build/ipa/**/*.ipa
+      - ios/build/Runner.xcarchive/**
+
+    publishing:
+      app_store_connect:
+        auth: $APP_STORE_CONNECT_CREDENTIALS
+        submit_to_testflight: true
+        submit_to_app_store: false
+
+  fvm-workflow:
+    name: M.Player with FVM
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    environment:
+      node: 16
+      xcode: latest
+
+    triggering:
+      events:
+        - push
+      branch:
+        - main
+
+    scripts:
+      - name: Install FVM
+        script: |
+          npm install -g fvm
+
+      - name: Set up Flutter
+        script: |
+          fvm install
+          fvm flutter pub get
+
+      - name: Build APK
+        script: fvm flutter build apk --release
+
+      - name: Build iOS
+        script: fvm flutter build ios --release --no-codesign
+
+    artifacts:
+      - build/app/outputs/**/*.apk
+      - build/ios/ipa/**/*.ipa
